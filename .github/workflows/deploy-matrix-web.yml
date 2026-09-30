@@ -1,0 +1,47 @@
+name: Deploy matrix-web to ECS
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout del código
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # 2. Configurar credenciales AWS
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      # 3. Login en ECR
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region us-east-2 \
+            | docker login --username AWS --password-stdin 128127476454.dkr.ecr.us-east-2.amazonaws.com
+
+      # 4. Build de la imagen Docker
+      - name: Build Docker image
+        run: docker build -t matrix-web .
+
+      # 5. Tag y push a ECR
+      - name: Push to ECR
+        run: |
+          docker tag matrix-web:latest 128127476454.dkr.ecr.us-east-2.amazonaws.com/matrix-web:latest
+          docker push 128127476454.dkr.ecr.us-east-2.amazonaws.com/matrix-web:latest
+
+      # 6. Forzar despliegue en ECS
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster default \
+            --service matrix-web-service \
+            --force-new-deployment
