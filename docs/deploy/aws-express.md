@@ -11,12 +11,39 @@ Express Mode, por defecto, envía el tráfico al **puerto 80** del contenedor y 
 | Causa | Síntoma | Solución |
 |---|---|---|
 | El puerto del contenedor no es el que escucha la app | Target group *unhealthy*; la tarea se reinicia | `containerPort` = **8080** (api-go), **3000** (api-node) u **80** (matrix-web) |
-| Una app no root intenta escuchar en el puerto 80 | La tarea se detiene al arrancar (`permission denied`) | No cambies `PORT` a 80 en las APIs: sus imágenes corren como usuario no root |
+| Una app no root intenta escuchar en el puerto 80 | La tarea se detiene al arrancar (`permission denied`) y el servicio nunca avanza de "Aprovisionamiento" | **No pongas `PORT=80` en las APIs.** ECS no permite a un contenedor no root usar puertos < 1024 (Docker en tu máquina sí, por eso allí "funciona"). Usa 8080/3000 y configura `containerPort` |
 | Faltan variables obligatorias | La tarea se detiene al instante; en los logs: `configuración inválida: JWT_SECRET es obligatorio...` | Define `JWT_SECRET` (≥ 32 caracteres) y, en api-go, `AUTH_USERNAME` y `AUTH_PASSWORD` |
 | La ruta del health check responde 404 | Target group *unhealthy* | Usa `--health-check-path /health` (las APIs también responden 200 en `/`) |
 | El balanceador y el certificado aún se aprovisionan | La URL no resuelve (*Non-existent domain*); recursos en "Aprovisionamiento" | Esperar entre 5 y 15 minutos. Luego el health check necesita ~2.5 min (5 éxitos × 30 s) |
 
-## Configuración por servicio
+## Forma recomendada: el script `express-deploy.sh`
+
+Hace los tres pasos (imagen → secretos y permisos → actualizar el servicio) con los valores correctos para este
+servicio, y evita los errores típicos de la consola. Necesita AWS CLI autenticada (`aws login`) y Docker; en Windows,
+ejecútalo desde **Git Bash**.
+
+```bash
+# Desde la raíz de este repositorio. Las URLs son las públicas de tus servicios, sin barra final.
+export AWS_REGION=us-east-2
+WEB_URL=https://ma-5e9d558c80e64056a2b7350bc5740fe8.ecs.us-east-2.on.aws \
+NODE_API_URL=https://ap-cc4ef613dc894f5e8fa7b82b3b899301.ecs.us-east-2.on.aws \
+  ./deploy/aws/express-deploy.sh                  # api-go (api-node solo necesita WEB_URL;
+                                                  #  matrix-web necesita API_GO_URL y API_NODE_URL)
+
+./deploy/aws/express-deploy.sh diagnose           # por qué se detienen las tareas + últimos logs
+DRY_RUN=1 WEB_URL=... NODE_API_URL=... ./deploy/aws/express-deploy.sh   # muestra lo que haría, sin tocar nada
+```
+
+Qué configura: puerto del contenedor (8080 / 3000 / 80), ruta de salud (`/health` o `/healthz`), 256 CPU / 512 MB,
+las variables de la tabla de abajo y los secretos `retotecnico/jwt-secret` y `retotecnico/auth-password` (los crea si
+no existen; api-go y api-node comparten el mismo `JWT_SECRET`). También da permiso de lectura de esos secretos al rol
+de ejecución de la tarea. Despliega primero **api-node**, luego **api-go** y al final **matrix-web**.
+
+> **Git Bash en Windows:** convierte los argumentos que empiezan con `/` en rutas de Windows (`--health-check-path /health`
+> se vuelve `C:/Program Files/Git/health`). El script ya lo evita con `MSYS_NO_PATHCONV=1`; si ejecutas los comandos
+> `aws` a mano, exporta esa variable primero.
+
+## Configuración por servicio (detalle)
 
 Reemplaza las URLs por las de tus servicios (se ven en la consola, en *Ruta de entrada pública*).
 
@@ -65,7 +92,7 @@ task definition.*
 **Consola:** ECS → *Express Mode* → el servicio → **Update** → *Additional configurations*: puerto del contenedor,
 ruta del health check, variables de entorno y secretos (tabla anterior).
 
-**CLI** (con `aws configure` o `aws login` hecho). Ejemplo con las URLs actuales:
+**CLI manual** (equivale a lo que hace el script; en Git Bash ejecuta antes `export MSYS_NO_PATHCONV=1`). Ejemplo con las URLs actuales:
 
 ```bash
 REGION=us-east-2

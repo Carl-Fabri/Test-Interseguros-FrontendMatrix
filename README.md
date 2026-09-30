@@ -252,7 +252,7 @@ y las APIs ya aceptan el origen `http://<ALB>` por CORS. Para otras URLs (p. ej.
 `PARAM_OVERRIDES="ApiGoUrl=https://api-go.midominio.com ApiNodeUrl=https://api-node.midominio.com" ./deploy/aws/deploy.sh`.
 Parámetros de [`deploy/aws/service.yml`](deploy/aws/service.yml): `DesiredCount`, `ApiGoUrl`, `ApiNodeUrl` y `HealthPollMs`.
 
-**¿Usas ECS Express Mode desde la consola?** Sigue [docs/deploy/aws-express.md](docs/deploy/aws-express.md): puerto del contenedor, ruta del health check y variables de cada servicio.
+**¿Usas ECS Express Mode desde la consola?** Usa `./deploy/aws/express-deploy.sh` (configura puerto, health check, variables y secretos, y tiene un modo `diagnose`) y consulta [docs/deploy/aws-express.md](docs/deploy/aws-express.md).
 
 **Costo y limpieza.** Los tres servicios comparten un solo balanceador y usan Fargate Spot: ≈ US$ 45 al mes si quedan
 encendidos 24/7 y centavos para una demo de horas ([detalle](docs/deploy/aws.md#4-costos-estimados)). Pausar:
