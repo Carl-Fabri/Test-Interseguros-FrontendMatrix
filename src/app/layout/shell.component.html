@@ -1,0 +1,102 @@
+<div class="flex min-h-screen">
+  <!-- ═════════ Barra lateral ═════════ -->
+  <aside
+    class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-line bg-canvas px-4 py-5 transition-transform lg:translate-x-0"
+    [class.-translate-x-full]="!menuOpen()"
+    aria-label="Navegación"
+  >
+    <a routerLink="/resumen" class="flex items-center gap-2.5 px-2">
+      <span class="grid size-7 place-items-center rounded-md bg-ink font-mono text-xs font-bold text-canvas">M</span>
+      <span>
+        <span class="block text-sm font-semibold leading-none">MatrixCore</span>
+        <span class="mt-1 block font-mono text-[10px] text-ink-faint">matrix-web · v1.1</span>
+      </span>
+    </a>
+
+    <p class="eyebrow mt-8 px-2">Módulos</p>
+    <nav class="mt-2 flex flex-col gap-0.5">
+      @for (page of pages; track page.link) {
+        <a
+          class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+          [routerLink]="page.link"
+          routerLinkActive="!bg-surface-2 !text-ink"
+          ariaCurrentWhenActive="page"
+          (click)="menuOpen.set(false)"
+        >
+          <span class="w-4 text-center font-mono text-xs text-ink-faint">{{ page.icon }}</span>{{ page.label }}
+        </a>
+      }
+    </nav>
+
+    <p class="eyebrow mt-6 px-2">Documentación API</p>
+    <nav class="mt-2 flex flex-col gap-0.5">
+      <a
+        class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+        [href]="goDocsUrl"
+        target="_blank"
+        rel="noopener"
+      >
+        <span class="w-4 text-center font-mono text-xs text-ink-faint">{{ '{}' }}</span>api-go · Scalar ↗
+      </a>
+      <a
+        class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+        [href]="nodeDocsUrl"
+        target="_blank"
+        rel="noopener"
+      >
+        <span class="w-4 text-center font-mono text-xs text-ink-faint">{{ '{}' }}</span>api-node · Scalar ↗
+      </a>
+    </nav>
+
+    <div class="panel-inset mt-auto space-y-1.5 p-3 font-mono text-[10px] text-ink-muted">
+      <p class="flex justify-between"><span class="text-ink-faint">API GO</span><span class="truncate pl-2">{{ config.apiGoUrl }}</span></p>
+      <p class="flex justify-between"><span class="text-ink-faint">API NODE</span><span class="truncate pl-2">{{ config.apiNodeUrl }}</span></p>
+      <p class="flex justify-between"><span class="text-ink-faint">HEALTH</span><span>cada {{ config.healthPollMs / 1000 }} s</span></p>
+    </div>
+  </aside>
+
+  @if (menuOpen()) {
+    <button type="button" class="fixed inset-0 z-30 bg-black/60 lg:hidden" aria-label="Cerrar menú" (click)="menuOpen.set(false)"></button>
+  }
+
+  <!-- ═════════ Contenido ═════════ -->
+  <div class="flex min-w-0 flex-1 flex-col lg:pl-60">
+    <header class="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-line bg-canvas/85 px-4 py-3 backdrop-blur md:px-6">
+      <button type="button" class="btn-ghost lg:hidden" aria-label="Abrir menú" (click)="menuOpen.set(true)">☰</button>
+
+      <div class="flex flex-1 flex-wrap items-center gap-2">
+        @for (svc of services(); track svc.name) {
+          <div class="panel-inset flex items-center gap-2 px-3 py-1.5 font-mono text-[11px]" [title]="svc.url + '/health'">
+            <span class="size-1.5 rounded-full" [class]="healthDot(svc.h)"></span>
+            <span class="whitespace-nowrap">{{ svc.name }}<span class="hidden sm:inline"> {{ port(svc.url) }}</span></span>
+            <span class="hidden whitespace-nowrap text-ink-faint md:inline">
+              [{{ healthLabel(svc.h) }}{{ svc.h.latencyMs !== null ? ' · ' + (svc.h.latencyMs | number: '1.0-0') + ' ms' : '' }}]
+            </span>
+          </div>
+        }
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="hidden text-right sm:block">
+          <p class="text-xs font-medium">{{ auth.username() }}</p>
+          <p class="font-mono text-[10px] text-ink-faint">JWT · expira en {{ auth.secondsLeft() / 60 | number: '1.0-0' }} min</p>
+        </div>
+        <button type="button" class="btn-secondary px-3 py-1.5 text-xs" (click)="auth.logout()">Cerrar sesión</button>
+      </div>
+    </header>
+
+    <main class="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 md:px-6">
+      <!-- Error global: visible desde cualquier página de la consola -->
+      @if (store.error(); as error) {
+        <div class="flex items-start justify-between gap-4 rounded-xl border border-bad/40 bg-bad/10 p-4" role="alert">
+          <div>
+            <p class="font-mono text-xs font-semibold text-bad">{{ error.code }} · HTTP {{ error.status || '—' }}</p>
+            <p class="mt-1 text-sm">{{ error.message }}</p>
+          </div>
+          <button type="button" class="btn-ghost text-xs" (click)="store.dismissError()">Cerrar</button>
+        </div>
+      }
+      <router-outlet />
+    </main>
+  </div>
+</div>

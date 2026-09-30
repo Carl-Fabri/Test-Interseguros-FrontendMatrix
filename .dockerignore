@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.angular/
+coverage/
+.git/
+.claude/
+.vscode/
+.env
+public/config.json
+Dockerfile
+docker-compose.yml
+.dockerignore
+skills-lock.json
+deploy/

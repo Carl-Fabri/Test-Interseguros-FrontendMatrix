@@ -1,0 +1,5 @@
+{
+  "apiGoUrl": "http://localhost:8080",
+  "apiNodeUrl": "http://localhost:3000",
+  "healthPollMs": 15000
+}

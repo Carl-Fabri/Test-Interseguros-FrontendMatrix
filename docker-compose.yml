@@ -1,0 +1,13 @@
+# Ejecución AISLADA de matrix-web (no requiere el resto del repositorio).
+# Las APIs se consumen desde el navegador en API_GO_URL y API_NODE_URL.
+services:
+  matrix-web:
+    build: .
+    image: matrix-web:latest
+    container_name: matrix-web
+    ports:
+      - "${WEB_PORT:-4200}:80"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped

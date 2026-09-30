@@ -1,0 +1,26 @@
+{
+  "autoMemoryDirectory": "~/.claude/projects/retotecnico-matrix-web/memory",
+  "permissions": {
+    "allow": [
+      "Bash(npm start)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(npx ng:*)",
+      "Bash(ng:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker build:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./public/config.json)",
+      "Read(../api-go/**)",
+      "Edit(../api-go/**)",
+      "Write(../api-go/**)",
+      "Read(../api-node/**)",
+      "Edit(../api-node/**)",
+      "Write(../api-node/**)"
+    ]
+  }
+}

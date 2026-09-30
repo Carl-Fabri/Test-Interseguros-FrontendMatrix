@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  RetoTecnico · Plataforma compartida v1 (red, cluster ECS Fargate, ALB y secretos).
+  Cada repositorio (api-go, api-node, matrix-web) incluye una copia IDÉNTICA de este archivo en
+  deploy/aws/platform.yml: el primer deploy.sh que se ejecute la crea y los demás la reutilizan,
+  así los tres servicios comparten UN solo balanceador (menor costo).
+
+Metadata:
+  PlatformVersion: "1"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: retotecnico
+    AllowedPattern: "^[a-z][a-z0-9-]{2,20}$"
+    Description: Prefijo de recursos y de exportaciones (debe coincidir con el de las pilas de servicio).
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+  PublicSubnetACidr:
+    Type: String
+    Default: 10.20.0.0/24
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.20.1.0/24
+  AllowedIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Rango de IPs que puede acceder al ALB (restrínjalo para una demo privada).
+
+Resources:
+  # ── Red: VPC con 2 subredes públicas en 2 zonas (sin NAT Gateway para reducir costo) ──
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-vpc" }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-igw" }]
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-a" }]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-b" }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-rt" }]
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ── Seguridad: el ALB acepta tráfico público; las tareas solo aceptan tráfico del ALB ──
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${ProjectName} ALB: HTTP publico (frontend :80, api-go :8080, api-node :3000)"
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: !Ref AllowedIngressCidr, Description: matrix-web }
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, CidrIp: !Ref AllowedIngressCidr, Description: api-go }
+        - { IpProtocol: tcp, FromPort: 3000, ToPort: 3000, CidrIp: !Ref AllowedIngressCidr, Description: api-node }
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-alb-sg" }]
+
+  TasksSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${ProjectName} tareas ECS: solo trafico desde el ALB"
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: Trafico del ALB hacia los contenedores
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-tasks-sg" }]
+
+  # ── Balanceador compartido: un listener por servicio (lo crea cada pila de servicio) ──
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Name: !Sub "${ProjectName}-alb"
+      Scheme: internet-facing
+      Type: application
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      LoadBalancerAttributes:
+        - { Key: idle_timeout.timeout_seconds, Value: "30" }
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: "true" }
+
+  # ── Cómputo ──
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-cluster"
+      ClusterSettings:
+        - { Name: containerInsights, Value: disabled }
+      CapacityProviders: [FARGATE, FARGATE_SPOT]
+      DefaultCapacityProviderStrategy:
+        - { CapacityProvider: FARGATE, Weight: 1 }
+
+  # ── Secretos generados automáticamente (nunca viven en el repositorio) ──
+  JwtSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "${ProjectName}: secreto HS256 compartido por api-go y api-node"
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  AuthPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "${ProjectName}: contraseña del usuario de demo de api-go"
+      GenerateSecretString:
+        PasswordLength: 20
+        ExcludePunctuation: true
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export: { Name: !Sub "${ProjectName}-VpcId" }
+  PublicSubnets:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+    Export: { Name: !Sub "${ProjectName}-PublicSubnets" }
+  ClusterName:
+    Value: !Ref Cluster
+    Export: { Name: !Sub "${ProjectName}-ClusterName" }
+  LoadBalancerArn:
+    Value: !Ref LoadBalancer
+    Export: { Name: !Sub "${ProjectName}-AlbArn" }
+  LoadBalancerDns:
+    Description: DNS público del ALB (frontend en :80, api-go en :8080, api-node en :3000)
+    Value: !GetAtt LoadBalancer.DNSName
+    Export: { Name: !Sub "${ProjectName}-AlbDns" }
+  TasksSecurityGroupId:
+    Value: !Ref TasksSecurityGroup
+    Export: { Name: !Sub "${ProjectName}-TasksSecurityGroup" }
+  JwtSecretArn:
+    Value: !Ref JwtSecret
+    Export: { Name: !Sub "${ProjectName}-JwtSecretArn" }
+  AuthPasswordSecretArn:
+    Description: "Obtén la contraseña con: aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text"
+    Value: !Ref AuthPasswordSecret
+    Export: { Name: !Sub "${ProjectName}-AuthPasswordSecretArn" }
+  PlatformVersion:
+    Description: Versión de la plataforma (las copias de cada repositorio deben coincidir)
+    Value: "1"
+  FrontendUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+  ApiGoUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}:8080"
+  ApiNodeUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}:3000"

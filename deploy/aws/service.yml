@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  matrix-web · Frontend (nginx + SPA Angular) en ECS Fargate. Publicado en el ALB compartido en el puerto 80.
+  Requiere la pila de plataforma (infra/aws/platform.yml) con el mismo ProjectName.
+
+Metadata:
+  cfn-lint:
+    config:
+      # Las salidas muestran la URL del servicio a partir del DNS del ALB importado (intencional).
+      ignore_checks: [W6001]
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: retotecnico
+    Description: Prefijo usado por la pila de plataforma (sus exportaciones se importan con este nombre).
+  ImageUri:
+    Type: String
+    Description: Imagen en ECR (la define deploy.sh), p. ej. 123456789012.dkr.ecr.us-east-1.amazonaws.com/retotecnico/matrix-web:abc123
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 4
+  ListenerPort:
+    Type: Number
+    Default: 80
+  ApiGoUrl:
+    Type: String
+    Default: ""
+    Description: URL pública de api-go que usará el navegador. Vacío = http://<alb>:8080.
+  ApiNodeUrl:
+    Type: String
+    Default: ""
+    Description: URL pública de api-node que usará el navegador. Vacío = http://<alb>:3000.
+  HealthPollMs:
+    Type: Number
+    Default: 15000
+
+  CapacityProvider:
+    Type: String
+    Default: FARGATE_SPOT
+    AllowedValues: [FARGATE_SPOT, FARGATE]
+    Description: FARGATE_SPOT es ~70 % más barato (puede interrumpirse; ECS reemplaza la tarea). FARGATE para mayor estabilidad.
+
+Conditions:
+  DefaultApiGo: !Equals [!Ref ApiGoUrl, ""]
+  DefaultApiNode: !Equals [!Ref ApiNodeUrl, ""]
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}/matrix-web"
+      RetentionInDays: 7
+
+  # Rol que usa ECS para descargar la imagen y escribir logs (el frontend no usa secretos).
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-matrix-web"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      RuntimePlatform: { CpuArchitecture: X86_64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: matrix-web
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings: [{ ContainerPort: 80, Protocol: tcp }]
+          # docker/40-app-config.sh convierte estas variables en /config.json al arrancar.
+          Environment:
+            - Name: API_GO_URL
+              Value: !If
+                - DefaultApiGo
+                - !Sub
+                  - "http://${AlbDns}:8080"
+                  - AlbDns: { "Fn::ImportValue": !Sub "${ProjectName}-AlbDns" }
+                - !Ref ApiGoUrl
+            - Name: API_NODE_URL
+              Value: !If
+                - DefaultApiNode
+                - !Sub
+                  - "http://${AlbDns}:3000"
+                  - AlbDns: { "Fn::ImportValue": !Sub "${ProjectName}-AlbDns" }
+                - !Ref ApiNodeUrl
+            - { Name: HEALTH_POLL_MS, Value: !Ref HealthPollMs }
+          HealthCheck:
+            Command: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1"]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 10
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: matrix-web
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ProjectName}-matrix-web"
+      VpcId: { "Fn::ImportValue": !Sub "${ProjectName}-VpcId" }
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+      HealthCheckPath: /healthz
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: "200" }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "15" }
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: { "Fn::ImportValue": !Sub "${ProjectName}-AlbArn" }
+      Port: !Ref ListenerPort
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: matrix-web
+      Cluster: { "Fn::ImportValue": !Sub "${ProjectName}-ClusterName" }
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      CapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProvider
+          Weight: 1
+      HealthCheckGracePeriodSeconds: 30
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", { "Fn::ImportValue": !Sub "${ProjectName}-PublicSubnets" }]
+          SecurityGroups: [{ "Fn::ImportValue": !Sub "${ProjectName}-TasksSecurityGroup" }]
+      LoadBalancers:
+        - ContainerName: matrix-web
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  FrontendUrl:
+    Value: !Sub
+      - "http://${AlbDns}"
+      - AlbDns: { "Fn::ImportValue": !Sub "${ProjectName}-AlbDns" }
+  LogGroup:
+    Value: !Ref LogGroup

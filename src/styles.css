@@ -1,3 +1,91 @@
-/* You can add global styles to this file, and also import other style files */
-
+/*
+ * Sistema de diseño de MatrixCore (Tailwind CSS v4, configuración CSS-first).
+ * Estética de consola técnica: fondo casi negro, superficies escalonadas, bordes finos,
+ * datos en monoespaciada y un único acento (blanco) para acciones primarias.
+ */
 @import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-canvas: #080808;
+  --color-surface: #0f0f0f;
+  --color-surface-2: #151515;
+  --color-surface-3: #1c1c1c;
+  --color-line: #242424;
+  --color-line-strong: #333333;
+  --color-ink: #ededed;
+  --color-ink-muted: #9a9a9a;
+  --color-ink-faint: #5f5f5f;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+  }
+  ::selection {
+    @apply bg-ink text-canvas;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+/* Utilidades propias (@utility permite reutilizarlas con @apply y con variantes). */
+/* Contenedores */
+@utility panel {
+  @apply rounded-xl border border-line bg-surface;
+}
+@utility panel-inset {
+  @apply rounded-lg border border-line bg-surface-2;
+}
+
+/* Tipografía de etiquetas técnicas */
+@utility eyebrow {
+  @apply font-mono text-[10px] tracking-[0.14em] text-ink-faint uppercase;
+}
+@utility tag {
+  @apply inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-1 font-mono text-[11px] text-ink-muted;
+}
+
+/* Botones */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition
+    disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink;
+}
+@utility btn-primary {
+  @apply btn bg-ink text-canvas hover:bg-white;
+}
+@utility btn-secondary {
+  @apply btn border border-line-strong bg-surface-2 text-ink hover:bg-surface-3;
+}
+@utility btn-ghost {
+  @apply btn px-2.5 py-1.5 text-ink-muted hover:bg-surface-3 hover:text-ink;
+}
+@utility chip {
+  @apply rounded-md border border-line px-2.5 py-1 text-xs text-ink-muted transition hover:border-line-strong hover:text-ink;
+}
+@utility chip-active {
+  @apply border-ink bg-ink text-canvas hover:text-canvas;
+}
+
+/* Formularios */
+@utility field {
+  @apply w-full rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm text-ink placeholder:text-ink-faint
+    focus:border-ink focus:outline-none;
+}
+
+/* Celdas de matriz */
+@utility cell {
+  @apply h-9 w-full min-w-16 rounded-md border border-line bg-surface-2 px-2 text-center font-mono text-xs text-ink tabular-nums;
+}

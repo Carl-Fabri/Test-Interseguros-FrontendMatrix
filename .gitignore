@@ -42,3 +42,11 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Configuración local (ver public/config.example.json y .env.example)
+/public/config.json
+.env
+
+# Claude Code: preferencias personales
+.claude/settings.local.json
+.claude/agent-memory-local/

@@ -1,0 +1,45 @@
+# CI de matrix-web (repositorio propio).
+# Costo mínimo: un solo job, sin despliegues ni publicación de imágenes (no usa servicios de AWS),
+# ignora cambios solo de documentación y cancela ejecuciones anteriores de la misma rama.
+name: matrix-web CI
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore: ["**.md", "docs/**", ".claude/**", "deploy/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", ".claude/**", "deploy/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Pruebas, build y Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Pruebas unitarias (Vitest)
+        run: npm run test:ci
+
+      - name: Build de producción
+        run: npm run build
+
+      # Solo verifica que la imagen compila; no se publica en ningún registro.
+      - name: Build de la imagen Docker
+        run: docker build -t matrix-web:ci .
